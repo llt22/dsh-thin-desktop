@@ -17,6 +17,7 @@
 
 - Rust 负责运行环境发现和 DSH 子进程生命周期
 - 系统 WebView 展示启动状态和 DSH Web 页面
+- DSH 页面中的外部 HTTP/HTTPS 链接使用系统默认浏览器打开
 - 前端是无框架的静态 HTML、CSS 和 JavaScript
 - 不包含 Electron、Node runtime 或第二份 DSH
 

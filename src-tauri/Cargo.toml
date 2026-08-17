@@ -14,6 +14,7 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 shell-words = "1"
 tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2.5.4"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

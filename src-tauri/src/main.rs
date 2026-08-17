@@ -2,7 +2,41 @@ mod discovery;
 mod launcher;
 
 use launcher::{LauncherState, RuntimeSnapshot};
-use tauri::{AppHandle, Manager, State};
+use tauri::{webview::PageLoadEvent, AppHandle, Manager, State};
+
+const EXTERNAL_LINK_BRIDGE: &str = r#"
+(() => {
+  if (window.__DSH_THIN_DESKTOP_EXTERNAL_LINKS__) return;
+  window.__DSH_THIN_DESKTOP_EXTERNAL_LINKS__ = true;
+
+  const isExternalWebUrl = (value) => {
+    try {
+      const url = new URL(value, window.location.href);
+      return (url.protocol === 'http:' || url.protocol === 'https:')
+        && url.origin !== window.location.origin;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  document.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button !== 0) return;
+    const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+    if (!anchor || !isExternalWebUrl(anchor.href)) return;
+    event.preventDefault();
+    window.location.assign(anchor.href);
+  }, true);
+
+  const nativeOpen = window.open.bind(window);
+  window.open = (url, target, features) => {
+    if (typeof url === 'string' && isExternalWebUrl(url)) {
+      window.location.assign(url);
+      return null;
+    }
+    return nativeOpen(url, target, features);
+  };
+})();
+"#;
 
 #[tauri::command]
 fn get_snapshot(state: State<'_, LauncherState>) -> Result<RuntimeSnapshot, String> {
@@ -27,6 +61,32 @@ fn main() {
     let setup_launcher = launcher.clone();
 
     let app = tauri::Builder::default()
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("external-links")
+                .on_navigation(|webview, url| {
+                    if !matches!(url.scheme(), "http" | "https")
+                        || url.host_str() == Some("tauri.localhost")
+                        || webview.state::<LauncherState>().owns_url(url)
+                    {
+                        return true;
+                    }
+
+                    if let Err(error) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+                        eprintln!("failed to open external URL {url}: {error}");
+                    }
+                    false
+                })
+                .on_page_load(|webview, payload| {
+                    if payload.event() == PageLoadEvent::Finished
+                        && webview.state::<LauncherState>().owns_url(payload.url())
+                    {
+                        if let Err(error) = webview.eval(EXTERNAL_LINK_BRIDGE) {
+                            eprintln!("failed to install external link bridge: {error}");
+                        }
+                    }
+                })
+                .build(),
+        )
         .manage(launcher)
         .invoke_handler(tauri::generate_handler![
             get_snapshot,

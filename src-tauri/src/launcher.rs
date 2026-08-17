@@ -186,6 +186,19 @@ impl LauncherState {
         }
     }
 
+    pub fn owns_url(&self, url: &Url) -> bool {
+        self.inner
+            .data
+            .lock()
+            .ok()
+            .and_then(|data| {
+                data.dsh_url
+                    .as_deref()
+                    .and_then(|value| Url::parse(value).ok())
+            })
+            .is_some_and(|dsh_url| dsh_url.origin() == url.origin())
+    }
+
     pub fn snapshot(&self) -> Result<RuntimeSnapshot, String> {
         let data = self.inner.data.lock().map_err(lock_error)?;
         Ok(RuntimeSnapshot {
@@ -620,5 +633,16 @@ mod tests {
     fn allows_unrelated_extra_arguments() {
         let args = vec!["--verbose".to_string(), "--name=desktop".to_string()];
         assert!(validate_extra_args(&args).is_ok());
+    }
+
+    #[test]
+    fn recognizes_only_the_active_dsh_origin() {
+        let state = LauncherState::new();
+        state.inner.data.lock().unwrap().dsh_url =
+            Some("http://127.0.0.1:3210/conversation".to_string());
+
+        assert!(state.owns_url(&Url::parse("http://127.0.0.1:3210/settings").unwrap()));
+        assert!(!state.owns_url(&Url::parse("http://127.0.0.1:9999/").unwrap()));
+        assert!(!state.owns_url(&Url::parse("https://example.com/").unwrap()));
     }
 }
