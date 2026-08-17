@@ -1,0 +1,19 @@
+[package]
+name = "dsh-thin-desktop"
+version = "0.2.0"
+description = "A thin desktop launcher for DeepSeek Harness"
+authors = ["DSH Thin Desktop contributors"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+ctrlc = { version = "3", features = ["termination"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+shell-words = "1"
+tauri = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

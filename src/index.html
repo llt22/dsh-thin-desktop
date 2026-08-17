@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>DSH Thin Desktop</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">DEEPSEEK HARNESS</p>
+        <h1>DSH Thin Desktop</h1>
+      </div>
+      <div class="runtime" id="runtime">正在检查本地运行环境</div>
+    </header>
+
+    <section class="status-band" aria-live="polite">
+      <span class="status-dot" aria-hidden="true"></span>
+      <div>
+        <span class="status-label">当前状态</span>
+        <strong id="status">正在准备...</strong>
+      </div>
+    </section>
+
+    <section class="log-section">
+      <div class="section-heading">
+        <h2>启动日志</h2>
+        <div class="actions">
+          <button id="copy" type="button">复制诊断</button>
+          <button id="restart" class="primary" type="button">重启 DSH</button>
+        </div>
+      </div>
+      <pre id="log" tabindex="0" aria-label="DSH 启动日志"></pre>
+    </section>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

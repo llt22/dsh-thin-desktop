@@ -1,0 +1,16 @@
+{
+  "name": "dsh-thin-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A thin Tauri launcher for the user's local DeepSeek Harness.",
+  "scripts": {
+    "dev": "tauri dev",
+    "start": "tauri dev",
+    "check": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "build": "tauri build"
+  },
+  "keywords": ["deepseek-harness", "dsh", "tauri", "desktop"],
+  "license": "MIT",
+  "engines": { "node": ">=22.19.0" },
+  "devDependencies": { "@tauri-apps/cli": "^2.8.0" }
+}
