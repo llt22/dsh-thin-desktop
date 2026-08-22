@@ -1,6 +1,6 @@
 {
   "name": "dsh-thin-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "A thin Tauri launcher for the user's local DeepSeek Harness.",
   "scripts": {

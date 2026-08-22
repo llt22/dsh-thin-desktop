@@ -84,9 +84,15 @@ src-tauri/target/release/bundle/
 
 ## 下载版本
 
-[GitHub Releases](https://github.com/llt22/dsh-thin-desktop/releases) 提供 Apple Silicon（`aarch64`）与 Intel（`x86_64`）两套 macOS 安装包。版本标签必须与 `package.json` 和 `src-tauri/tauri.conf.json` 中的版本一致，例如 `v0.2.0`。
+[GitHub Releases](https://github.com/llt22/dsh-thin-desktop/releases) 提供 Apple Silicon（`aarch64`）与 Intel（`x86_64`）两套 macOS 安装包。版本标签必须与 `package.json` 和 `src-tauri/tauri.conf.json` 中的版本一致，例如 `v0.2.1`。
 
-当前安装包尚未使用 Apple Developer 证书签名或公证，macOS Gatekeeper 可能在首次打开时拦截。正式分发前需要在 Release workflow 中配置 Apple 签名与公证凭据。
+macOS 安装包使用 Ad-hoc 签名，并在 Release 流水线中执行严格签名校验，避免不完整签名被误报为“应用已损坏”。由于没有使用付费 Apple Developer ID 和公证，Gatekeeper 首次打开时仍可能阻止运行。可以右键点击应用并选择“打开”，或下载仓库中的安装脚本后执行：
+
+```sh
+bash scripts/install-macos.sh ~/Downloads/DSH.Thin.Desktop_0.2.1_aarch64.dmg
+```
+
+脚本会挂载 DMG、将应用安装到 `/Applications`，并清除该应用的 quarantine 标记。
 
 ## 环境变量
 

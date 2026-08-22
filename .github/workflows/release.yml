@@ -16,8 +16,10 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             runner: macos-latest
+            asset_arch: aarch64
           - target: x86_64-apple-darwin
             runner: macos-latest
+            asset_arch: x64
 
     runs-on: ${{ matrix.runner }}
     steps:
@@ -42,17 +44,45 @@ jobs:
           package_version="$(node -p "require('./package.json').version")"
           test "v${package_version}" = "${GITHUB_REF_NAME}"
 
-      - uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Tauri app
+        run: npm run build -- --target ${{ matrix.target }}
+
+      - name: Verify macOS app signature
+        shell: bash
+        run: |
+          dmg_path="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -name '*.dmg' -print -quit)"
+          test -n "$dmg_path"
+          mount_point="$(mktemp -d)"
+          hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point"
+          trap 'hdiutil detach "$mount_point" -quiet' EXIT
+          codesign --verify --deep --strict --verbose=2 "$mount_point/DSH Thin Desktop.app"
+
+      - name: Archive macOS app
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          bundle_dir="src-tauri/target/${{ matrix.target }}/release/bundle"
+          tar -czf "$bundle_dir/DSH.Thin.Desktop_${version}_${{ matrix.asset_arch }}.app.tar.gz" \
+            -C "$bundle_dir/macos" "DSH Thin Desktop.app"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: v__VERSION__
-          releaseName: DSH Thin Desktop v__VERSION__
-          releaseBody: |
-            macOS 安装包尚未使用 Apple Developer 证书签名或公证。
-          generateReleaseNotes: true
-          releaseDraft: false
-          prerelease: false
-          uploadUpdaterJson: false
-          uploadWorkflowArtifacts: true
-          args: --target ${{ matrix.target }}
+          name: macos-${{ matrix.asset_arch }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/*.app.tar.gz
+          if-no-files-found: error
+
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DSH Thin Desktop ${{ github.ref_name }}
+          body: |
+            macOS 安装包使用经过严格校验的 Ad-hoc 签名，尚未使用 Apple Developer ID 公证。
+            如果 Gatekeeper 阻止首次打开，请右键点击应用并选择“打开”，或使用仓库中的 `scripts/install-macos.sh`。
+          generate_release_notes: true
+          files: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/*.app.tar.gz

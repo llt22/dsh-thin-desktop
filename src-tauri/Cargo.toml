@@ -1,6 +1,6 @@
 [package]
 name = "dsh-thin-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "A thin desktop launcher for DeepSeek Harness"
 authors = ["DSH Thin Desktop contributors"]
 edition = "2021"
