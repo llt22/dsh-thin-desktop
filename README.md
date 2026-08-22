@@ -1,5 +1,8 @@
 # DSH Thin Desktop
 
+[![CI](https://github.com/llt22/dsh-thin-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/llt22/dsh-thin-desktop/actions/workflows/ci.yml)
+[![Release](https://github.com/llt22/dsh-thin-desktop/actions/workflows/release.yml/badge.svg)](https://github.com/llt22/dsh-thin-desktop/actions/workflows/release.yml)
+
 一个用于更方便启动 DeepSeek Harness 的轻量桌面工具。
 
 它不是另一套 DSH Desktop，也不内置 Node 或 DSH runtime。桌面端只负责：
@@ -78,6 +81,12 @@ macOS 产物位于：
 ```text
 src-tauri/target/release/bundle/
 ```
+
+## 下载版本
+
+[GitHub Releases](https://github.com/llt22/dsh-thin-desktop/releases) 提供 Apple Silicon（`aarch64`）与 Intel（`x86_64`）两套 macOS 安装包。版本标签必须与 `package.json` 和 `src-tauri/tauri.conf.json` 中的版本一致，例如 `v0.2.0`。
+
+当前安装包尚未使用 Apple Developer 证书签名或公证，macOS Gatekeeper 可能在首次打开时拦截。正式分发前需要在 Release workflow 中配置 Apple 签名与公证凭据。
 
 ## 环境变量
 
