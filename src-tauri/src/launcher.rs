@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::collections::VecDeque;
 use std::env;
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use tauri::webview::cookie::SameSite;
+use tauri::webview::Cookie;
 use tauri::{AppHandle, Emitter, Manager, Url};
 
 const MAX_LOG_LINES: usize = 1000;
@@ -271,7 +273,8 @@ impl LauncherState {
             if !is_current || data.dsh_url.is_some() {
                 false
             } else {
-                data.dsh_url = Some(url.to_string());
+                // 存 origin 基地址（去掉 token），owns_url 仅比对 origin，且避免 token 泄进 UI 日志
+                data.dsh_url = Some(base_url(&url).to_string());
                 true
             }
         };
@@ -286,11 +289,50 @@ impl LauncherState {
                 if !state.is_current(generation) {
                     return;
                 }
-                state.set_status(&app, format!("正在打开 {url}"));
-                if let Some(window) = app.get_webview_window("main") {
-                    if let Err(error) = window.navigate(url) {
-                        state.set_status(&app, format!("打开 DSH 页面失败：{error}"));
+                let Some(window) = app.get_webview_window("main") else {
+                    return;
+                };
+                // 新版 dsh web 强制会话鉴权。若直接把带 token 的地址交给 webview，
+                // dsh 会 303 跳到 /，而这一跳的发起源是 tauri 应用页（异源），
+                // WKWebView 不会在异源跳转上回传 SameSite=Strict 的会话 cookie → 401。
+                // 因此先在 Rust 侧用 token 换取会话 cookie，以 SameSite=Lax 注入
+                // webview，再同源加载 /（无 token），让 Lax cookie 随顶层导航发送。
+                let destination = match exchange_token_for_cookie(&url) {
+                    Ok(cookies) => {
+                        let domain = url.host_str().unwrap_or("127.0.0.1").to_string();
+                        let mut injected: Option<String> = None;
+                        for (name, value) in cookies {
+                            let cookie = Cookie::build((name.clone(), value))
+                                .domain(domain.clone())
+                                .path("/")
+                                .http_only(true)
+                                .same_site(SameSite::Lax)
+                                .build();
+                            match window.set_cookie(cookie) {
+                                Ok(()) => injected = Some(name),
+                                Err(error) => state.append_log(
+                                    &app,
+                                    format!("[thin-desktop] 注入鉴权 cookie 失败：{error}"),
+                                ),
+                            }
+                        }
+                        // set_cookie 在 WKWebView 上异步落库，导航前确认已写入
+                        if let Some(name) = injected {
+                            wait_for_cookie_written(&window, &base_url(&url), &name);
+                        }
+                        base_url(&url)
                     }
+                    Err(error) => {
+                        state.append_log(
+                            &app,
+                            format!("[thin-desktop] 换取鉴权 cookie 失败，回退直接导航：{error}"),
+                        );
+                        url.clone()
+                    }
+                };
+                state.set_status(&app, format!("正在打开 {destination}"));
+                if let Err(error) = window.navigate(destination) {
+                    state.set_status(&app, format!("打开 DSH 页面失败：{error}"));
                 }
             }
             Err(error) => state.set_status_if_current(&app, generation, error),
@@ -404,6 +446,8 @@ fn build_launch_spec() -> Result<LaunchSpec, String> {
         host,
         "--port".to_string(),
         port,
+        // 桌面壳自带窗口，禁止 dsh 另开系统浏览器抢占同一个鉴权 token
+        "--no-open".to_string(),
     ];
     args.extend(extra_args);
 
@@ -540,6 +584,119 @@ fn wait_for_http(url: &Url, timeout: Duration) -> Result<(), String> {
     Err(format!("等待 DSH Web 就绪超时：{url}"))
 }
 
+/// 去掉 token 与 fragment、路径归一为 `/` 的 origin 基地址。
+fn base_url(url: &Url) -> Url {
+    let mut base = url.clone();
+    base.set_query(None);
+    base.set_fragment(None);
+    base.set_path("/");
+    base
+}
+
+/// 用带 token 的地址向 dsh 发一次明文 HTTP GET，取回它下发的会话 cookie。
+/// 只读响应头，返回全部 `Set-Cookie` 的 name/value（无 cookie 则空列表，如旧版不鉴权）。
+fn exchange_token_for_cookie(url: &Url) -> Result<Vec<(String, String)>, String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| "DSH URL 缺少 host".to_string())?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "DSH URL 缺少端口".to_string())?;
+    let mut target = url.path().to_string();
+    if let Some(query) = url.query() {
+        target.push('?');
+        target.push_str(query);
+    }
+
+    let address = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| format!("解析 DSH 地址失败：{error}"))?
+        .next()
+        .ok_or_else(|| format!("无法解析 DSH 地址 {host}:{port}"))?;
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(5))
+        .map_err(|error| format!("连接 DSH 失败：{error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| format!("设置读取超时失败：{error}"))?;
+
+    let request = format!(
+        "GET {target} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: */*\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("发送鉴权请求失败：{error}"))?;
+    stream
+        .flush()
+        .map_err(|error| format!("刷新鉴权请求失败：{error}"))?;
+
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 2048];
+    loop {
+        let read = stream
+            .read(&mut chunk)
+            .map_err(|error| format!("读取鉴权响应失败：{error}"))?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if let Some(end) = find_header_end(&buffer) {
+            buffer.truncate(end);
+            break;
+        }
+        if buffer.len() > 64 * 1024 {
+            break;
+        }
+    }
+
+    Ok(parse_set_cookies(&String::from_utf8_lossy(&buffer)))
+}
+
+/// 在字节缓冲里定位 HTTP 头结束标记 `\r\n\r\n`。
+fn find_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+/// 从响应头文本里解析所有 `Set-Cookie` 的 `name=value`（大小写不敏感，取到首个 `;` 为止）。
+fn parse_set_cookies(headers: &str) -> Vec<(String, String)> {
+    const PREFIX: &str = "set-cookie:";
+    headers
+        .lines()
+        .filter_map(|line| {
+            let head = line.get(..PREFIX.len())?;
+            if !head.eq_ignore_ascii_case(PREFIX) {
+                return None;
+            }
+            let pair = line[PREFIX.len()..].split(';').next()?.trim();
+            let (name, value) = pair.split_once('=')?;
+            let name = name.trim();
+            if name.is_empty() {
+                None
+            } else {
+                Some((name.to_string(), value.trim().to_string()))
+            }
+        })
+        .collect()
+}
+
+/// set_cookie 在 WKWebView 上异步落库，导航前轮询确认目标 cookie 已写入（有上限）。
+fn wait_for_cookie_written<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    url: &Url,
+    name: &str,
+) {
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    loop {
+        let present = window
+            .cookies_for_url(url.clone())
+            .map(|cookies| cookies.iter().any(|cookie| cookie.name() == name))
+            .unwrap_or(false);
+        if present || Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[cfg(unix)]
 fn terminate_process_tree(pid: u32, force: bool) -> Result<(), String> {
     let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
@@ -644,5 +801,29 @@ mod tests {
         assert!(state.owns_url(&Url::parse("http://127.0.0.1:3210/settings").unwrap()));
         assert!(!state.owns_url(&Url::parse("http://127.0.0.1:9999/").unwrap()));
         assert!(!state.owns_url(&Url::parse("https://example.com/").unwrap()));
+    }
+
+    #[test]
+    fn parses_set_cookie_headers_case_insensitively() {
+        let headers = "HTTP/1.1 303 See Other\r\nlocation: /\r\nset-cookie: dsh-auth-abc=v1.tokenvalue; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict\r\nSet-Cookie: other=1; Path=/";
+        assert_eq!(
+            parse_set_cookies(headers),
+            vec![
+                ("dsh-auth-abc".to_string(), "v1.tokenvalue".to_string()),
+                ("other".to_string(), "1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_responses_without_set_cookie() {
+        let headers = "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\n";
+        assert!(parse_set_cookies(headers).is_empty());
+    }
+
+    #[test]
+    fn base_url_strips_token_and_path() {
+        let url = Url::parse("http://127.0.0.1:52956/some/path?token=secret#frag").unwrap();
+        assert_eq!(base_url(&url).to_string(), "http://127.0.0.1:52956/");
     }
 }
