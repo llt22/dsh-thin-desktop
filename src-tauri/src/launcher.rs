@@ -19,6 +19,9 @@ const MAX_LOG_LINES: usize = 1000;
 const DEFAULT_PROFILE: &str = "web";
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: &str = "0";
+/// 桌面端默认启动的 DSH 版本。npm `latest` 停在 0.1.5-rc.3，0.1.7-rc.1 只在 `next`
+/// 标签下，所以必须显式钉版本；`DSH_VERSION` 仍可覆盖。
+const DEFAULT_DSH_VERSION: &str = "0.1.7-rc.1";
 
 #[derive(Clone)]
 pub struct LauncherState {
@@ -466,13 +469,7 @@ fn build_launch_spec() -> Result<LaunchSpec, String> {
     }
 
     let toolchain = discover_node_toolchain()?;
-    let package = match env::var("DSH_VERSION")
-        .ok()
-        .filter(|value| !value.is_empty())
-    {
-        Some(version) => format!("@deepseek-ai/dsh@{version}"),
-        None => "@deepseek-ai/dsh@latest".to_string(),
-    };
+    let package = dsh_package_spec();
     let mut npx_args = vec!["-y".to_string(), package.clone()];
     npx_args.extend(args);
     Ok(LaunchSpec {
@@ -533,6 +530,19 @@ fn env_value(name: &str, fallback: &str) -> String {
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| fallback.to_string())
+}
+
+/// npx 解析的 DSH 包标识，默认钉在 [`DEFAULT_DSH_VERSION`]。
+fn dsh_package_spec() -> String {
+    dsh_package_spec_for(env::var("DSH_VERSION").ok())
+}
+
+/// [`dsh_package_spec`] 的纯函数形态：空值与缺省都落到钉住的默认版本。
+fn dsh_package_spec_for(version: Option<String>) -> String {
+    let version = version
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_DSH_VERSION.to_string());
+    format!("@deepseek-ai/dsh@{version}")
 }
 
 fn home_dir() -> Result<PathBuf, String> {
@@ -825,5 +835,29 @@ mod tests {
     fn base_url_strips_token_and_path() {
         let url = Url::parse("http://127.0.0.1:52956/some/path?token=secret#frag").unwrap();
         assert_eq!(base_url(&url).to_string(), "http://127.0.0.1:52956/");
+    }
+
+    #[test]
+    fn pins_the_default_dsh_version() {
+        assert_eq!(
+            dsh_package_spec_for(None),
+            format!("@deepseek-ai/dsh@{DEFAULT_DSH_VERSION}")
+        );
+    }
+
+    #[test]
+    fn lets_dsh_version_override_the_pin() {
+        assert_eq!(
+            dsh_package_spec_for(Some("0.1.9".to_string())),
+            "@deepseek-ai/dsh@0.1.9"
+        );
+    }
+
+    #[test]
+    fn ignores_blank_dsh_version() {
+        assert_eq!(
+            dsh_package_spec_for(Some(String::new())),
+            format!("@deepseek-ai/dsh@{DEFAULT_DSH_VERSION}")
+        );
     }
 }

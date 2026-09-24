@@ -12,7 +12,7 @@
 - 加载本地 DSH 页面
 - 管理启动日志、重启和退出
 
-桌面启动器可以保持稳定、少更新；DSH 通过 npm 的 `latest` 标签独立更新，并继续使用用户已有的 profile、插件和配置。
+桌面启动器可以保持稳定、少更新；DSH 版本由 `DSH_VERSION` 指定（默认钉在 `0.1.7-rc.1`），并继续使用用户已有的 profile、插件和配置。
 
 ## 当前实现
 
@@ -27,10 +27,10 @@
 默认启动等价于：
 
 ```sh
-npx -y @deepseek-ai/dsh@latest --profile web --host 127.0.0.1 --port 0
+npx -y @deepseek-ai/dsh@0.1.7-rc.1 --profile web --host 127.0.0.1 --port 0
 ```
 
-`@latest` 由 npm 解析和缓存，因此 DSH 更新不要求重新发布桌面应用。
+版本默认钉住，避免 npm `latest` 标签在两次启动之间漂移；换版本只需设置 `DSH_VERSION`，不必重新发布桌面应用。
 
 ## 本地环境发现
 
@@ -84,12 +84,12 @@ src-tauri/target/release/bundle/
 
 ## 下载版本
 
-[GitHub Releases](https://github.com/llt22/dsh-thin-desktop/releases) 提供 Apple Silicon（`aarch64`）与 Intel（`x86_64`）两套 macOS 安装包。版本标签必须与 `package.json` 和 `src-tauri/tauri.conf.json` 中的版本一致，例如 `v0.2.1`。
+[GitHub Releases](https://github.com/llt22/dsh-thin-desktop/releases) 提供 Apple Silicon（`aarch64`）与 Intel（`x86_64`）两套 macOS 安装包。版本标签必须与 `package.json` 和 `src-tauri/tauri.conf.json` 中的版本一致，例如 `v0.2.3`。
 
 macOS 安装包使用 Ad-hoc 签名，并在 Release 流水线中执行严格签名校验，避免不完整签名被误报为“应用已损坏”。由于没有使用付费 Apple Developer ID 和公证，Gatekeeper 首次打开时仍可能阻止运行。可以右键点击应用并选择“打开”，或下载仓库中的安装脚本后执行：
 
 ```sh
-bash scripts/install-macos.sh ~/Downloads/DSH.Thin.Desktop_0.2.1_aarch64.dmg
+bash scripts/install-macos.sh ~/Downloads/DSH.Thin.Desktop_0.2.3_aarch64.dmg
 ```
 
 脚本会挂载 DMG、将应用安装到 `/Applications`，并清除该应用的 quarantine 标记。
@@ -98,7 +98,7 @@ bash scripts/install-macos.sh ~/Downloads/DSH.Thin.Desktop_0.2.1_aarch64.dmg
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DSH_VERSION` | `latest` | 临时固定 DSH 版本，用于排障 |
+| `DSH_VERSION` | `0.1.7-rc.1` | 启动的 DSH 版本；默认钉住，避免 `latest` 漂移 |
 | `DSH_PROFILE` | `web` | 复用的 DSH profile |
 | `DSH_HOST` | `127.0.0.1` | 仅允许 `127.0.0.1`、`localhost` 或 `::1` |
 | `DSH_PORT` | `0` | `0` 表示自动分配空闲端口 |
@@ -106,10 +106,10 @@ bash scripts/install-macos.sh ~/Downloads/DSH.Thin.Desktop_0.2.1_aarch64.dmg
 | `DSH_EXECUTABLE` | 空 | 直接启动指定的 dsh 可执行文件，不走 npx |
 | `DSH_EXTRA_ARGS` | 空 | 追加传给 DSH 的参数，支持引号；不能覆盖 `--host` 或 `--port` |
 
-固定 DSH 版本：
+切换 DSH 版本：
 
 ```sh
-DSH_VERSION=0.1.0-rc.6 npm run dev
+DSH_VERSION=0.1.5-rc.3 npm run dev
 ```
 
 指定 npx：
